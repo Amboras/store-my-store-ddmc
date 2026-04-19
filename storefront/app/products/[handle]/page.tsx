@@ -7,10 +7,40 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Truck, RotateCcw, Shield, ChevronRight } from 'lucide-react'
 import ProductActions from '@/components/product/product-actions'
+import ProductConversionPanel, { type BundleCompanion } from '@/components/product/product-conversion-panel'
 import ProductAccordion from '@/components/product/product-accordion'
 import { ProductViewTracker } from '@/components/product/product-view-tracker'
 import { getProductPlaceholder } from '@/lib/utils/placeholder-images'
 import { type VariantExtension } from '@/components/product/product-price'
+
+/**
+ * Products that get the conversion-optimized panel (bundle + urgency + trust).
+ * Keyed by product handle. The companion is fetched at render time.
+ */
+const CRO_BUNDLES: Record<string, { companionHandle: string; companionVariantSku: string; bundleDiscountCents: number; saleEndsInDays: number }> = {
+  'lalla-royal-caftan-emerald-brocade': {
+    companionHandle: 'sahara-silk-hijab-signature-collection',
+    companionVariantSku: 'SAH-CH', // Champagne — pairs beautifully with emerald
+    bundleDiscountCents: 2000, // $20 off the hijab when bundled
+    saleEndsInDays: 3,
+  },
+}
+
+async function getCompanionProduct(handle: string) {
+  try {
+    const regionsResponse = await medusaServerClient.store.region.list()
+    const regionId = regionsResponse.regions[0]?.id
+    if (!regionId) return null
+    const response = await medusaServerClient.store.product.list({
+      handle,
+      region_id: regionId,
+      fields: '*variants.calculated_price',
+    })
+    return response.products?.[0] || null
+  } catch {
+    return null
+  }
+}
 
 async function getProduct(handle: string) {
   try {
@@ -97,6 +127,47 @@ export default async function ProductPage({
 
   const variantExtensions = await getVariantExtensions(product.id)
 
+  // ---- Build CRO bundle offer (if applicable) ----
+  const croConfig = CRO_BUNDLES[handle]
+  let bundleCompanion: BundleCompanion | null = null
+  let urgencyStockTotal: number | null = null
+  let saleEndsAt: string | undefined = undefined
+
+  if (croConfig) {
+    const companion = await getCompanionProduct(croConfig.companionHandle)
+    if (companion) {
+      const companionVariant =
+        (companion.variants as Array<{ id: string; sku?: string | null; title?: string; calculated_price?: { calculated_amount?: number; currency_code?: string } }> | undefined)?.find(
+          (v) => v.sku === croConfig.companionVariantSku,
+        ) || companion.variants?.[0]
+      if (companionVariant) {
+        const cp = (companionVariant as { calculated_price?: { calculated_amount?: number; currency_code?: string } }).calculated_price
+        const indiv = cp?.calculated_amount ?? 0
+        bundleCompanion = {
+          productTitle: companion.title,
+          productHandle: companion.handle,
+          image: companion.thumbnail || companion.images?.[0]?.url || '',
+          variantId: companionVariant.id,
+          variantLabel: `Silk Hijab · ${companionVariant.title || 'Champagne'}`,
+          individualPriceCents: indiv,
+          bundlePriceCents: Math.max(0, indiv - croConfig.bundleDiscountCents),
+          currency: cp?.currency_code || 'usd',
+        }
+      }
+    }
+
+    // Urgency: count total remaining across all variants
+    urgencyStockTotal = Object.values(variantExtensions).reduce((sum, ext) => {
+      const q = ext.inventory_quantity
+      return typeof q === 'number' ? sum + Math.max(0, q) : sum
+    }, 0)
+
+    // Sale ends at — 3 days from now (server render time)
+    const ends = new Date()
+    ends.setDate(ends.getDate() + croConfig.saleEndsInDays)
+    saleEndsAt = ends.toISOString()
+  }
+
   const allImages = [
     ...(product.thumbnail ? [{ url: product.thumbnail }] : []),
     ...(product.images || []).filter((img: any) => img.url !== product.thumbnail),
@@ -178,7 +249,17 @@ export default async function ProductPage({
             />
 
             {/* Variant Selector + Price + Add to Cart (client component) */}
-            <ProductActions product={product} variantExtensions={variantExtensions} />
+            {bundleCompanion ? (
+              <ProductConversionPanel
+                product={product}
+                variantExtensions={variantExtensions}
+                bundle={bundleCompanion}
+                urgencyStockTotal={urgencyStockTotal ?? undefined}
+                saleEndsAt={saleEndsAt}
+              />
+            ) : (
+              <ProductActions product={product} variantExtensions={variantExtensions} />
+            )}
 
             {/* Trust Signals */}
             <div className="grid grid-cols-3 gap-4 py-6 border-t">

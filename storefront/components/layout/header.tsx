@@ -81,9 +81,9 @@ export default function Header() {
             </button>
 
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-2">
-              <span className="font-heading text-2xl font-semibold tracking-tight">
-                Store
+            <Link href="/" className="flex items-center gap-2 group">
+              <span className="font-heading text-2xl font-light tracking-[0.18em] uppercase">
+                Dar <span className="text-[#b8864a] italic font-normal normal-case tracking-tight">Noor</span>
               </span>
             </Link>
 
@@ -153,7 +153,9 @@ export default function Header() {
             className="absolute inset-y-0 left-0 w-80 max-w-[85vw] bg-background animate-slide-in-right"
           >
             <div className="flex items-center justify-between p-4 border-b">
-              <span className="font-heading text-xl font-semibold">Menu</span>
+              <span className="font-heading text-xl font-light tracking-[0.18em] uppercase">
+                Dar <span className="text-[#b8864a] italic normal-case tracking-tight">Noor</span>
+              </span>
               <button
                 ref={mobileMenuCloseRef}
                 onClick={() => setIsMobileMenuOpen(false)}
